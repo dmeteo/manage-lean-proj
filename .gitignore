@@ -31,4 +31,8 @@ backups/
 *.dump
 # Локальные вспомогательные файлы
 tmp/
+__pycache__/
+.pytest_cache/
+.venv/
+*.egg-info/
 
