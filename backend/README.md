@@ -1,103 +1,49 @@
-# Backend foundation
+# Бэкенд управления lean-проектами
 
-FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic. The folder layout follows the local
-`AIMarket` project: `app/core`, `app/models`, `app/schemas`, `app/api/v1/routers`,
-`app/services`, `app/repositories` and `migrations`. The internal `v1` package
-does not change the external draft API prefix `/api`.
+Каркас на FastAPI, Pydantic, SQLAlchemy и Alembic. Структура каталогов основана на
+проекте `AIMarket`. Внешний префикс API — `/api`; каталог `app/api/v1` не добавляет
+`/v1` к адресам запросов.
 
-The current branch contains a **database and DTO draft**, not business endpoints.
-`GET /health` is the only implemented route. Authorization, permissions, transitions,
-uploads, exports and integration tests must be implemented before a functional demo.
+## Что готово
 
-## Layout
+- В `app/models/` описана предварительная схема БД; первая миграция находится в `migrations/`.
+- В `app/schemas/` находятся черновые DTO запросов и ответов.
+- В `app/api/v1/routers/` объявлены 40 маршрутов из рабочего API-контракта.
+- [openapi.json](openapi.json) генерируется из приложения. При запуске схема доступна по `/openapi.json`, интерфейс Swagger — по `/docs`.
+- [schema.dbml](schema.dbml) генерируется из моделей БД; файл можно вставить в DBML-редактор для построения диаграммы.
+- [schema.mmd](schema.mmd) содержит те же таблицы и связи в формате Mermaid ER.
+- Работает только `GET /health`. Остальные маршруты возвращают `501`.
 
-```text
-backend/
-  app/
-    api/v1/       # route composition; resource routers follow the approved contract
-    common/       # shared enums
-    core/         # settings and DB sessions
-    models/       # SQLAlchemy tables and relationships
-    repositories/ # data access modules when routes are implemented
-    schemas/      # Pydantic request and response DTOs
-    services/     # workflows, permissions and transactions when implemented
-    main.py       # FastAPI entry point
-  migrations/     # Alembic initial schema
-```
+Авторизация, проверка прав, переходы статусов, хранение файлов и отчёты пока не
+реализованы. Cookie `lean_session` в схеме указана предварительно; наличие сессии
+и CSRF-токена обработчики сейчас не проверяют. Модель БД и DTO ещё требуют ревью.
 
-## Database design
+## Запуск
 
-```mermaid
-erDiagram
-  ENTERPRISE ||--o{ USER : employs
-  ENTERPRISE ||--o{ PROJECT : owns
-  USER ||--o{ AUTH_SESSION : signs_in
-  PROJECT ||--o{ PROJECT_MEMBER : includes
-  USER ||--o{ PROJECT_MEMBER : participates
-  PROJECT ||--o{ ACTIVITY : schedules
-  USER ||--o{ ACTIVITY : performs
-  ACTIVITY ||--o{ DOCUMENT : has
-  ACTIVITY ||--o{ REVIEW : has
-  PROJECT ||--o{ METRIC : measures
-  PROJECT ||--o{ ECONOMIC_EFFECT : records
-  DOCUMENT |o--o{ ECONOMIC_EFFECT : supports
-  PROJECT |o--o{ AUDIT_EVENT : scopes
-  USER ||--o{ AUDIT_EVENT : acts
-```
-
-All business IDs are UUIDs. All foreign keys restrict deletion. The ORM stores
-timestamps in UTC and dates as calendar dates. `version` supports optimistic
-concurrency. `AuthSession` stores hashed session and CSRF tokens for revocation;
-neither raw token belongs in the database. `Document.storage_key` is a private
-storage reference and never appears in a DTO. Reviews and audit events are
-append-only by application policy.
-
-The database checks enum values, local date ranges, required numeric values,
-unique `(activity_id, kind, revision)` documents, unique review stage per cycle,
-and case-insensitive login uniqueness. Cross-table rules belong to transactions
-in the service layer: enterprise membership, active assignees, reviewer roles,
-activity dates within project dates, effect documents from the same project,
-allowed status transitions, and `expectedVersion` updates.
-
-`progressPercent` and `isOverdue` are response calculations, not stored columns.
-`isOverdue` uses the calendar date in `Asia/Yekaterinburg` according to the draft.
-Monetary values use `numeric(18,2)` and KPI values use `numeric(18,4)` in the DB;
-the API returns decimal strings.
-
-## DTOs and API contract
-
-The Pydantic classes in `app/schemas` mirror the draft API contract on the
-separate `docs/backend-contract-v01` branch: camelCase
-JSON aliases, UUID/date/timestamp types, enum values, request length limits,
-decimal strings and required `expectedVersion` on updates. PATCH models use
-`model_fields_set` to distinguish an omitted field from explicit `null`.
-`Page[T]` and `Problem` define the shared list and error response shapes.
-
-Route signatures and response models will be added with their authorization and
-workflow rules. Publishing empty success handlers would misrepresent the API.
-
-## Local setup
-
-Use Python 3.12+ and a PostgreSQL database. From `backend/`:
+Нужны Python 3.12+, PostgreSQL и `make`. Из корня репозитория в PowerShell:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-Copy-Item .env.example .env
-# Set DATABASE_URL in .env to your local PostgreSQL instance.
-python -m alembic upgrade head
-uvicorn app.main:app --reload
+python -m venv backend/.venv
+.\backend\.venv\Scripts\Activate.ps1
+make install
+Copy-Item backend/.env.example backend/.env
+# Укажите параметры своей PostgreSQL в backend/.env.
+make alembic-upgrade
+make run
 ```
 
-Do not commit `.env`, database dumps, uploaded files or real customer data.
+Основные команды Makefile:
 
-## Decisions still open
+| Команда | Назначение |
+|---|---|
+| `make help` | Показать команды |
+| `make run` | Запустить FastAPI с автоперезагрузкой |
+| `make alembic-migrate m="описание"` | Создать миграцию по изменениям моделей |
+| `make alembic-upgrade` | Применить миграции |
+| `make alembic-downgrade` | Откатить одну миграцию |
+| `make export_openapi` | Обновить `backend/openapi.json` |
+| `make export_dbml` | Обновить диаграмму БД в `backend/schema.dbml` |
+| `make export_mermaid` | Обновить Mermaid-диаграмму в `backend/schema.mmd` |
+| `make check` | Проверить компиляцию Python и актуальность OpenAPI |
 
-- Whether a project can complete after internal approval or only after external acceptance.
-- Required activity/document templates and date norms from the RCK methodology.
-- Whether coordinator or project manager owns creation and manual federal status entry.
-- How anonymous pre-login CSRF sessions and production cookie settings will be finalized.
-- File scanning, retention and deployment topology.
-
-The model and DTOs can change when the team and customer settle these points.
+Не добавляйте в Git `.env`, дампы БД, загруженные файлы и данные заказчика.

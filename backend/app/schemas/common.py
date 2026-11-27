@@ -51,3 +51,7 @@ class Problem(ApiModel):
     detail: str
     trace_id: str
     errors: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class EmptyBody(ApiModel):
+    pass
